@@ -1,0 +1,20 @@
+[package]
+name = "ktg-outlook-mail-manager"
+version = "0.5.23"
+edition = "2021"
+rust-version = "1.85"
+description = "Reconstructed local Outlook Classic PST copy manager"
+
+[target.'cfg(windows)'.dependencies]
+tao = "=0.37.2"
+wry = { version = "=0.57.2", default-features = false, features = ["os-webview"] }
+
+[profile.release]
+lto = true
+strip = true
+panic = "abort"
+
+
+
+
+

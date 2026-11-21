@@ -1,0 +1,612 @@
+PHÁT HÀNH HIỆN TẠI: 0.5.19 — BỎ CHẶNG MOVE VÀO DELETED ITEMS
+Ngày 14/11/2026.
+
+Đối chiếu báo cáo thật từ mailbox người dùng:
+- cleanup-batch-*-intent.json: 08:16:35.
+- moved.json: 08:17:37 (bước chuyển nguồn mất khoảng 62 giây/lô 100).
+- result.json: 08:17:39 (xóa Deleted Items và hậu kiểm khoảng 2 giây).
+Nút thắt đã được xác định là MESSAGE_MOVE vào Deleted Items.
+
+Bản 0.5.19 tái dùng biên nhận PST được xác minh trong pha copy. Mỗi lô dùng
+source EntryIDs/Search Keys trong biên nhận, xác nhận chúng còn trong đúng
+folder, gọi một DeleteMessages(DELETE_HARD_DELETE) cho các ID đó, rồi đọc
+lại bảng folder để kiểm tra ID đã biến mất. Không có thao tác EmptyFolder,
+không tự retry partial/unknown. Luồng native không còn chuyển nguồn vào
+Deleted Items trước; đây là xóa vĩnh viễn theo lựa chọn người dùng, sau khi
+bản PST đã xác minh. Chính sách Exchange/Recoverable Items có thể vẫn áp dụng.
+
+Microsoft mô tả DELETE_HARD_DELETE là xóa vĩnh viễn và tài liệu MAPI mô tả
+luồng chuẩn hai bước qua Deleted Items. Vì vậy 0.5.19 cố ý dùng cách trực tiếp
+sau biên nhận PST để bỏ chặng MESSAGE_MOVE chậm; cần kiểm tra kết quả trên
+mailbox thật trước khi ước tính thời gian. Thử nghiệm giả lập không đo độ trễ
+Exchange/MAPI thật.
+
+Build 0.5.19 đạt: Rust 6/6; synthetic scan 70.000 thư 1,335 giây;
+core/cleanup/auto-export/bulk/native-result/server đều qua (20/28/28/44/5/15);
+synthetic bulk 40.000 item 78,40 giây (không có MAPI/Outlook thật). Native C++
+DLL và EXE Release build thành công; server smoke-test 15/15. Chưa chạy thao
+tác hard-delete trên mailbox thật cho 0.5.19.
+PHÁT HÀNH HIỆN TẠI: 0.5.18 — TÁI DÙNG BIÊN NHẬN PST, GIẢM MAPI ROUNDTRIPS
+Ngày 14/11/2026.
+
+Ảnh người dùng: 1.000 thư copy/xác minh trong khoảng 30 giây; dọn nguồn gần
+11 phút (~60 giây mỗi 100 thư).
+
+0.5.18 tái dùng biên nhận PST vừa được xác minh trong pha CopyMessages, thay
+vì mở lại từng thư PST ở pha dọn. Trước khi chuyển, vẫn mở và đối chiếu từng
+thư nguồn với biên nhận (thời điểm sửa, dung lượng, tệp đính kèm có/không,
+tiêu đề, Internet Message ID và folder). Sau MESSAGE_MOVE, vẫn yêu cầu ID
+nguồn biến mất và đúng một ID mới xuất hiện trong Deleted Items dưới Search
+Key tương ứng; bỏ mở IMessage/attachment table lần nữa. Trước DeleteMessages,
+kiểm tra hàng loạt các moved IDs còn trong Deleted Items; sau lệnh vẫn xác
+minh Deleted Items và folder nguồn. Nhờ vậy giảm lượt đọc PST và lượt đọc
+moved item theo từng thư mà vẫn chỉ xóa sau khi bản PST đã được xác minh.
+
+Chưa đo tốc độ trên mailbox thật cho 0.5.18. Build và kiểm thử được ghi sau
+khi hoàn tất.
+PHÁT HÀNH HIỆN TẠI: 0.5.17 — KIỂM TRA DELETED ITEMS THEO LÔ
+Ngày 13/11/2026.
+
+Ảnh người dùng: copy/đối chiếu 1.000 thư trong khoảng 1 phút 11 giây; dọn
+nguồn mất khoảng 10 phút 2 giây, với từng 100 thư khoảng 55–65 giây.
+
+0.5.17 bỏ mở từng IMessage và attachment table lặp lại trong bước xóa Deleted
+Items. Thay vào đó, sau khi đã xác minh PST và exact moved ID/metadata trong
+moveCleanup, đọc membership theo nhóm Search Key một lần, rồi chỉ gọi
+DeleteMessages cho moved IDs còn đúng trong Deleted Items. Sau lệnh vẫn xác
+minh lại IDs vắng khỏi Deleted Items và thư mục gốc. Không bật đa luồng trên
+cùng phiên MAPI/folder vì các delta trước/sau có thể nhập nhằng.
+
+Chưa có benchmark Outlook thật sau thay đổi; không cam kết thời gian mới.
+Build 0.5.17 đạt: Rust 6/6; synthetic scan 70.000 thư 1,384 giây;
+core/cleanup/auto-export/bulk/native-result/server đều qua (20/28/28/44/5/15);
+C++ MAPI DLL và EXE Release build thành công. Chưa chạy cleanup Outlook thật.
+PHÁT HÀNH HIỆN TẠI: 0.5.16 — TỐI ƯU KIỂM TRA TRƯỚC KHI XÓA HẲN
+Ngày 13/11/2026.
+
+Ảnh chạy thật của bản 0.5.15: copy/đối chiếu 1.000 thư mất khoảng 7 giây;
+dọn nguồn 1.000 thư mất khoảng 6 phút 49 giây (xấp xỉ 41 giây/100 thư).
+
+Không bật đa luồng cho thao tác MAPI trên cùng mailbox/folder: đối chiếu ID
+trước/sau các lệnh move phụ thuộc trạng thái folder theo thứ tự; các lô chồng
+lấn có thể làm kết quả delta mơ hồ. Bản 0.5.16 thay lượt mở attachment table
+riêng cho từng thư ở bước kiểm tra cuối Deleted Items bằng thuộc tính
+PR_HASATTACH trong GetProps, đồng thời vẫn đối chiếu EntryID, folder, Search
+Key, thời điểm sửa, dung lượng, tiêu đề và Internet Message ID trước khi gọi
+DeleteMessages. Attachment count đầy đủ vẫn được kiểm tra trước khi chuyển
+nguồn. Không thay đổi điều kiện chỉ xóa sau khi bản PST đã xác minh.
+
+Chưa đo lại trên mailbox thật; kỳ vọng giảm số lượt COM/MAPI nhưng không đưa ra
+cam kết thời gian. Build 0.5.16 đạt: Rust 6/6; synthetic scan 70.000 thư 1,317 giây;
+core/cleanup/auto-export/bulk/native-result/server đều qua (20/28/28/44/5/15);
+C++ MAPI DLL và EXE Release build thành công. Không chạy cleanup trên Outlook thật.
+PHÁT HÀNH HIỆN TẠI: 0.5.15 — TỐI ƯU DỌN NGUỒN THEO LÔ
+Ngày 13/11/2026.
+
+Đợt chạy người dùng báo: 1.000/1.000 thư PST đã xác minh và nguồn đã dọn,
+0 lỗi; tổng 452,98 giây. Ghi nhận từ báo cáo tác vụ: copy/xác minh khoảng
+66 giây, bước dọn nguồn khoảng 385 giây. Đây là số đo một lần trên mailbox thật.
+
+0.5.15 loại bỏ lần mở/đọc nguồn và PST bị lặp giữa bước lập intent và bước
+chuyển nguồn. Mỗi thư vẫn được mở/đối chiếu với PST ngay trước khi chuyển
+vào Deleted Items; trước DeleteMessages vẫn kiểm tra chính xác thư ở đó và
+kiểm tra lại kết quả sau lệnh. Nhóm cleanup tăng 50 lên 100 thư, giảm số
+vòng gọi từ 20 còn 10 cho 1.000 thư. Lệnh xóa không tự retry khi kết quả
+một phần/không xác định; thư không đạt kiểm tra được giữ lại và báo lỗi.
+
+Build và kiểm thử 0.5.15:
+- Rust unit tests 6/6.
+- Kiểm thử mô phỏng core 20, cleanup 28, auto-export 28, bulk 44,
+  native-result 5, server 15; tất cả đạt. Cleanup slices xác nhận 100 + 23.
+- Synthetic scan 70.000 thư đạt trong 1,353 giây (đo quét tổng hợp, không
+  phải tốc độ copy/xóa Outlook thật). Release EXE và DLL native build thành công.
+- Không chạy copy/xóa Outlook thật cho 0.5.15; chưa có số đo mới về thời gian
+  1.000 thư. Không thể suy ra tác vụ sẽ hoàn tất trong 10 phút hoặc một mốc khác.
+PHÁT HÀNH HIỆN TẠI: 0.5.1 — SUBJECT RỖNG TRONG LÔ MAPI
+Ngày 12/11/2026.
+
+Thử thật cùng 1.000 thư, 944 Inbox + 56 Sent Items, 754.149.016 byte:
+- 0.4.7: 1.000/1.000, 142,23 giây, không lỗi.
+- 0.5.0: 950/1.000, 117,72 giây, 50 lỗi cùng lô; không xóa nguồn.
+- Chẩn đoán native chỉ đọc xác định một thư thiếu cả PR_SUBJECT_W/A.
+- 0.5.1: 1.000/1.000, 111,17 giây, 21 lô, không lỗi.
+
+Chỉ sửa xử lý MAPI_E_NOT_FOUND của Subject thành chuỗi rỗng. Không bỏ qua
+property/metadata khác. Bulk guard 44 kiểm tra gồm subject rỗng, partial,
+source changed, header-only, bad copy, cancellation và pause/resume.
+Rust 6/6, native DLL và release build thành công.
+
+Kiểm tra nội dung email đính kèm MSG cần chuẩn hóa named-property IDs,
+PR_INSTANCE_KEY, creation/modification bookkeeping do nhà cung cấp tạo.
+Tên thuộc tính chuẩn theo GUID/LID/string; mọi stream dữ liệu còn lại
+và fixed properties được đối chiếu, kể cả body/HTML/recipients/đính kèm.
+Bộ so sánh chấp nhận mẫu khác metadata và đã kiểm chứng từ chối thay đổi
+1 byte trong Body của một file MSG thử. Tệp thường vẫn so SHA-256 từng byte.
+
+Số đo sao chép không gồm kiểm tra sâu SHA-256 ngoài ứng dụng và không gồm
+xóa nguồn. Đây là một cặp đo tuần tự, không phải benchmark cold-cache thống kê.
+KẾT QUẢ LỊCH SỬ: 0.5.0 — NATIVE MAPI COPY THEO LÔ
+Ngày 12/11/2026 trên máy người dùng, Outlook Classic 64-bit.
+
+Có native IMAPIFolder::CopyMessages thực, tối đa 50 thư/lần gọi.
+Phiên MAPI riêng, dùng MAPI_NO_MAIL, không kích hoạt gửi/nhận trong worker.
+Không MESSAGE_MOVE trên nguồn; chỉ Move các bản sao trong PST.
+Không tự retry partial completion hoặc trả lỗi; chỉ các bản đã đối chiếu
+và mở lại đúng đường dẫn mới được đưa sang guarded cleanup hiện có.
+Nút pause/resume và cho phép quét cache/xuất MAPI trong lúc Outlook online.
+Không tự đổi Offline/Online. Đợt thử thật dưới đây vẫn ở Work Offline;
+chưa kiểm thử tương tác UI và gửi/nhận đồng thời với một tác vụ lớn.
+
+Thử thật, không xóa nguồn:
+- 5 thư đầy đủ cache: một native copy call 0,264 giây;
+  lặp lại 0,276 giây, đối chiếu Body/Subject/attachment count, 5 nguồn còn.
+- Sau thành công: không còn thư mục tạm trong thư mục đích.
+- Luồng worker 50 thư: một lô, 50 bản PST ở cây hiển thị đúng,
+  mở lại được và 50 nguồn nguyên vẹn, PST thử tách riêng.
+- MAPI FILETIME có độ chính xác cao hơn OOM DATE: native kiểm tra lại
+  source modification time chính xác, bước OOM chấp nhận chênh dưới 1 ms
+  do biểu diễn thời gian, vẫn kiểm tra size/attachments và snapshot trước xóa.
+
+Kiểm thử mô phỏng:
+- Bulk 39/39: 123 thư thành lô 50/50/23, toàn cục đúng 123;
+  auto/copy-only, partial/missing map, source changed, cancel sau native,
+  CSV append đủ các batch, pause/cancel và pause/resume; chặn mail chỉ có
+  header trước khi gọi native, chặn bản sao sai subject.
+- Auto-export 28; delete guard 28 kịch bản; core 1.000 thư giả đạt.
+- Rust 6/6, build C++ DLL và release Rust thành công.
+- Server 15/15 gồm pause/resume endpoint; DLL nhúng so khớp hash bản đã thử.
+- Giao diện nhúng: 205 thư giả + 70.000 thư/100 folders, không lỗi JavaScript.
+
+Chưa chạy chuyển/xóa 40.000 thư thật và chưa xác nhận thời gian tổng.
+Việc xóa vẫn theo từng thư để kiểm tra sau Delete; không tuyên bố mọi bước
+là bulk. Worker vẫn dùng OOM ở bước kiểm tra/xóa, UI Outlook có thể chậm
+ngắt quãng. Tự xóa của bản này chỉ kiểm thử mô phỏng, không xóa thư thật.
+KẾT QUẢ LỊCH SỬ: 0.4.7 — XUẤT PST + TỰ XÓA NGUỒN
+Ngày 12/11/2026 trên Windows máy người dùng.
+
+Benchmark tuần tự, 2.000 email mô phỏng / 10 thư mục, đủ copy/verify/delete:
+- Trước: 51,811 giây; sau: 39,441 giây (~24% giảm thời gian).
+- 2.000 bản đã kiểm tra; 2.000 nguồn xóa; 8.000 dòng CSV đủ các giai đoạn.
+- Mở lại được toàn bộ 2.000 bản, không còn nguồn hoặc bản trong trash giả.
+- Phép đo này không có COM/PST thật, không dự báo thời gian 70.000 thư thật.
+- Lần gắn bộ đếm (chạy đồng thời, không dùng so tốc độ): đọc cây thư mục
+  6.011 → 1.991. Mọi lookup kiểm tra từng bản PST/nguồn vẫn được giữ.
+
+Thử thật an toàn trên Outlook Work Offline:
+- Tạo PST thử riêng; copy 5 thư cache.
+- 5/5 mở lại, xác minh đường dẫn hiển thị; 5 nguồn còn nguyên.
+- Không xóa thư thật, không ghi thử vào PST lưu trữ của người dùng.
+- PST thử được gỡ khỏi profile sau kiểm tra, giữ file riêng.
+
+Kiểm thử:
+- Auto-export 28 kiểm tra, gồm cache hết hạn/100 lần dùng, không tái sử dụng
+  cache giữa job và vẫn mở lại từng email khi cache cây còn hợp lệ.
+- Delete guard 28 kịch bản, gồm silent Delete failure, lỗi copy/PST/source,
+  nguồn thay đổi, cancel và không xóa các email không có bản đã kiểm tra.
+- Core: 1.000 thư giả, kiểm tra CSV Unicode/quote/newline/formula protection
+  và khóa đường dẫn không nhập nhằng, giữ cache thư mục đúng cấu trúc.
+- Scan 20/20; Rust 6/6; fmt đạt, build release thành công.
+- EXE server 13/13; UI 205 thư và 70.000 thư/100 folders giả đạt,
+  tìm/lọc/chọn tất cả, không lỗi JavaScript.
+
+Chưa chạy xuất và tự xóa 70.000 email thật. Không triển khai bulk MAPI
+hoặc song song COM khi chưa kiểm chứng an toàn provider trên máy này.
+KẾT QUẢ LỊCH SỬ: 0.4.6 — TỐI ƯU QUÉT NHIỀU THƯ
+Ngày 12/11/2026, Windows máy người dùng.
+
+Trước/sau, benchmark mô phỏng 70.000 dòng, cùng metadata/đĩa:
+- 0.4.5: 9,119 giây, 70 GetArray, 70 batch JSON.
+- 0.4.6: 3,771 giây, 35 GetArray, 35 batch JSON.
+- Đo Read-MailFolder và ghi dữ liệu, gồm khởi tạo bộ xử lý; không gồm
+  đọc lại JSON phục vụ đối chiếu. Đọc lại đủ 70.000 dòng, không mất metadata.
+- Không có COM thật trong phép đo này; không dự báo thời gian 70.000 thư thật.
+
+Cặp quét chỉ đọc trên Outlook thật cùng mailbox Work Offline:
+- Cũ: 1.352 thư, worker 3,02 giây; cả tiến trình 3,598 giây.
+- Mới: 1.352 thư, worker 2,50 giây; cả tiến trình 3,123 giây.
+- Toàn bộ định danh, số thư duy nhất và các trường metadata so khớp.
+- Không xuất PST, không sửa/xóa thư. Chưa đo mailbox thật 70.000 thư.
+
+Kiểm tra EXE:
+- Giao diện giả 70.000 thư/100 folders: tải 2.161 ms, 35 batch request;
+  chỉ render 100 hàng, lọc thư mục 700 thư, tìm thư cuối, chọn/bỏ 70.000 đạt.
+- Giao diện hồi quy 205 thư: quét, chọn/xóa, cả hai kiểu PST và tự xóa đạt.
+- Không lỗi JavaScript.
+- Máy chủ 13/13; Rust unit 6/6; build release thành công.
+- Scan 20/20: date filter, OLE date, thiếu cột tùy chọn, Unicode/quote/
+  slash/control characters, folder trống, dừng trước/trong lô.
+- Auto-export 24/24 và delete guard 28 kịch bản vẫn đạt.
+KẾT QUẢ LỊCH SỬ: 0.4.5 — XÓA CÁC THƯ ĐÃ CHỌN KHÔNG NHẬP XÁC NHẬN
+
+Chọn thao tác Xóa các email đã chọn và bấm Thực hiện lựa chọn sẽ chạy
+ngay; không checkbox/hộp nhập XOA N và không popup xác nhận bổ sung.
+Giao diện ghi rõ tác động ngay tại lựa chọn và hướng dẫn thao tác.
+Backend vẫn kiểm tra tập định danh/thư mục/cache và số lượng chính xác.
+Dùng lại luồng mở lại Deleted Items, Delete, kiểm tra thư không còn
+truy cập được; không dọn các email khác trong Deleted Items.
+Không tự xóa thư đang chọn chỉ vì mở ứng dụng hoặc đổi radio.
+Luồng xác nhận xóa thủ công sau xuất PST khi tắt tự xóa vẫn giữ riêng.
+
+Kiểm thử: Rust 6/6; auto-export 24/24 và delete guard 28 kịch bản.
+Build release đạt. EXE: máy chủ 13/13; giao diện 205 thư giả kiểm tra xóa
+trực tiếp không hiện dialog, đúng một yêu cầu cho tập thư đã chọn;
+hai chế độ PST tự xóa và luồng xóa sau xuất thủ công vẫn đạt.
+Không lỗi JavaScript. Không thực hiện xóa email thật trong lần cập nhật 0.4.5.
+KẾT QUẢ LỊCH SỬ: 0.4.4 — PST MỚI VÀ CÂY THƯ MỤC HIỂN THỊ
+Ngày 12/11/2026 trên Windows máy người dùng.
+
+Chẩn đoán thật: cả 5 bản sao của lần xuất PST 2027 vẫn mở được trong
+đúng 2027.pst. Nhưng Inbox được Store.GetDefaultFolder trả về nằm ngoài
+cây hiển thị; FolderPath chỉ có EntryID và SPL, không có root PST.
+
+Khắc phục thật: xác minh 5 receipt và folder chỉ chứa đúng 5 thư này;
+lưu 5 bản .msg dự phòng riêng, MoveTo thư mục SPL về Inbox mới tạo
+trực tiếp dưới root 2027. Sau sửa: 5 thư mở lại được trong
+\\2027\Inbox\SPL. Không xóa email trong quá trình sửa.
+
+Sửa code:
+- Bỏ fallback và cache seed từ Store.GetDefaultFolder cho PST đích.
+- Luôn tìm/tạo đường dẫn bằng Root.Folders, dùng chung mới/có sẵn.
+- Receipt ghi root ID và từng đoạn đường dẫn.
+- Trước tự xóa, đọc lại đường dẫn từ root và đối chiếu folder ID;
+  bản sao trong thư mục ẩn/ngoài cây không cho phép xóa nguồn.
+
+Kiểm thử thật với bridge hiện tại trên Outlook Classic:
+- PST thử hoàn toàn mới; không AddStore trước, không tạo Inbox trước.
+- 5 thư cache sao chép thành công, 5/5 đường dẫn hiển thị xác minh.
+- 5 bản PST mở lại được, 5 thư nguồn còn nguyên; không xóa nguồn.
+- Chỉ gỡ PST thử khỏi danh sách Outlook sau kiểm tra, giữ file riêng.
+- PST 2027 của người dùng không dùng làm nơi thử xuất lần nữa.
+
+Kiểm thử mô phỏng:
+- Auto-export: 24/24, gồm chặn bản PST mở được nhưng nằm ngoài cây.
+- Delete guards: 28 kịch bản chạy kèm test-auto-export.
+- Core: 1.000 thư giả, regression default Inbox ẩn bị bỏ qua;
+  folder resolutions 2, cache hits 998, 5,78 giây. Không phải tốc độ thật.
+- Rust unit tests: 6/6; fmt check đạt; build release thành công.
+- EXE: máy chủ 13/13; giao diện 205 thư giả, cả 2 chế độ PST,
+  không lỗi JavaScript.
+Chưa benchmark 40.000 email thật.
+
+KẾT QUẢ LỊCH SỬ: 0.4.3 — XÓA KHỎI DELETED ITEMS
+Ngày 12/11/2026 trên Windows máy người dùng.
+
+Chẩn đoán thật: báo cáo 0.4.2 ghi 5 lệnh Delete thành công, nhưng bảng
+Deleted Items vẫn có đúng 5 sourceCurrentEntryId từ lần xuất gần nhất.
+Không phải các bản Copy tạm.
+
+Sửa: không dùng lại wrapper trả về từ Move để Delete. Giải phóng các
+wrapper cũ, GetItemFromID lại trong Deleted Items, kiểm tra định danh/
+folder/store/subject/attachment count/Internet ID rồi Delete. Mở lại sau
+Delete; chỉ MAPI_E_NOT_FOUND hoặc MAPI_E_OBJECT_DELETED mới ghi thành công.
+Lỗi khác hoặc thư vẫn mở được là thất bại, không tự thử lại.
+Không so size/modified time trước và sau Move vì metadata có thể đổi;
+snapshot chính xác vẫn được kiểm tra trước Move.
+
+Đã xử lý thật đúng 5 thư còn sót theo audit của phiên người dùng:
+- 5 bản PST mở được và metadata hợp lệ.
+- 5 thư Exchange khớp ID sau Move, đang ở đúng Deleted Items.
+- Văn bản và HTML khớp hoàn toàn PST; cả 5 không có attachment.
+- 5/5 xóa thành công với cách mở lại; không lỗi.
+- Đọc lại bảng Deleted Items độc lập: 0 thư.
+- Outlook đang Work Offline. Chưa xác nhận đồng bộ Exchange server;
+  chính sách Recoverable Items/retention của tổ chức vẫn áp dụng.
+
+Mô phỏng: automatic-export 23/23, delete guard 28 kịch bản gồm
+Delete không báo lỗi nhưng không xóa và lỗi mở lại sau Move.
+Rust: 6/6; fmt check đạt; build release thành công.
+EXE: 13/13 kiểm tra máy chủ; giao diện 205 thư giả, hai chế độ PST tự xóa,
+không lỗi JavaScript. Chưa benchmark 40.000 thư thật.
+
+KẾT QUẢ LỊCH SỬ: 0.4.2 — TỰ XÓA NGUỒN SAU PST
+Ngày 12/11/2026, Windows máy người dùng.
+
+- Tự xóa bật sẵn cho PST có sẵn và PST mới. Xác nhận trước khi bắt đầu;
+  không hỏi lại sau xuất. Bỏ chọn để giữ thư nguồn.
+- Copy và kiểm tra xong mới đọc biên nhận worker và mở lại bản PST.
+  Kiểm tra lại nguồn trước khi Move vào Deleted Items và Delete.
+- Chỉ các bản đã kiểm tra được xóa nguồn; không dọn Deleted Items chung.
+- Giữ audit sao chép và các bước xóa trong cùng report.csv.
+- Không tự thử lại hoặc tiếp tục xóa sau khi mở lại ứng dụng.
+
+Kiểm thử bản 0.4.2:
+- cargo fmt --check; cargo test --locked --offline: 6/6.
+- cargo build --release --locked --offline: thành công.
+- PowerShell 5.1: scan 16/16; delete/receipt guard 26/26
+  (chạy trong test-auto-export); automatic-export 23/23.
+- Các ca tự xóa: PST có sẵn/mới; tắt/thiếu cờ giữ nguồn;
+  lỗi copy, mất PST, nguồn đổi, dừng trước/during cleanup, Delete lỗi,
+  lô trộn thành công/thất bại; thiếu đồng ý hoặc sai số lượng bị chặn.
+- Benchmark 1.000 thư giả: 7,95 giây, folder resolution 2,
+  cache hits 998, không Move/Delete nguồn khi tắt tự xóa.
+  Đây không phải tốc độ Outlook/PST thật.
+- Máy chủ trong EXE: 13/13, gồm từ chối yêu cầu tự xóa thiếu đồng ý
+  trước khi truy cập Outlook.
+
+- Giao diện nhúng trong EXE: 205 thư giả; cả 2 chế độ PST tự xóa chỉ
+  hiện 1 xác nhận trước chạy, không mở hộp xác nhận sau xuất;
+  xóa riêng và tắt tự xóa vẫn hoạt động, không lỗi JavaScript.
+
+Chức năng xóa tự động chỉ kiểm thử trên đối tượng giả. KHÔNG xóa thư thật.
+Kết quả sao chép 5 thư thật bên dưới thuộc bản 0.4.1; không phải
+kiểm thử tự xóa. EXE: 13/13 kiểm tra máy chủ; giao diện 205 thư giả, hai chế độ PST tự xóa,
+không lỗi JavaScript. Chưa benchmark 40.000 thư thật.
+
+Ngày kiểm thử: 12/11/2026, múi giờ Asia/Bangkok.
+
+KẾT QUẢ LỊCH SỬ: 0.4.1 — PST CÓ SẴN
+
+Chẩn đoán trên dữ liệu thật:
+- Nhật ký phiên người dùng: 5/5 xuất lỗi do kiểm tra EntryID theo chuỗi.
+- Đọc riêng 5 thư trên Outlook đang mở: chuỗi EntryID khác nhau,
+  CompareEntryIDs trả True cho cả 5; cùng store/thư mục nguồn,
+  DownloadState=1 và Size>0. Không sửa thư trong bước chẩn đoán.
+
+Đã sửa:
+- Dùng CompareEntryIDs khi ID khác chuỗi, vẫn từ chối ID khác đối tượng.
+- Chỉ tạo thư mục sau khi thư nguồn đã hợp lệ.
+- Bỏ lớp tên tài khoản trong đường dẫn PST; chuẩn hóa Inbox/Sent Items
+  theo default folder ID của Exchange; ưu tiên Inbox đã có trong PST.
+- Lưu source snapshot và biên nhận PST trong các batch kết quả worker.
+- Với PST có sẵn, hiện nút xác nhận đã lưu và xóa nguồn cho đúng
+  các email đã verified. Typed confirmation XOA N vẫn bắt buộc.
+- Backend mở lại PST trước khi xóa. Từ chối nếu thiếu bản sao,
+  sai folder/subject/attachment count/Internet ID hoặc nguồn đã đổi
+  size, attachment count, LastModificationTime sau khi sao chép.
+- Chỉ xóa đúng các thư nguồn đã xác nhận, không dọn toàn bộ Deleted Items.
+
+KIỂM THỬ THẬT TRÊN OUTLOOK CLASSIC:
+- Quét cache 1.358 email trong profile đang mở.
+- Ghép lại đúng 5 thư SPL người dùng đã chọn từ metadata quét mới.
+- Tạo PST thử riêng trong work/, thử chế độ PST có sẵn với Inbox có sẵn.
+- Copied=5, errors=0; Inbox/SPL có đúng 5 bản sao.
+- Mở lại và đối chiếu được cả 5 bản PST; cả 5 thư nguồn còn nguyên
+  trong đúng thư mục ban đầu và vẫn khớp snapshot.
+- Chỉ detach PST thử sau kiểm tra; giữ tệp thử riêng tư trong work/.
+- PST 2026 của người dùng không bị ghi. Không xóa thư thật.
+- Một lần thử đầu cho thấy cần ưu tiên Inbox có sẵn thay vì Inbox
+  mặc định theo ngôn ngữ của provider; đã sửa và kiểm thử lại thành công.
+
+KIỂM THỬ TỰ ĐỘNG:
+- Copy regression: 1.000 thư giả PASS; tương đương EntryID short/long
+  PASS; Inbox/SPL trực tiếp PASS; ID sai không tạo thư mục rỗng PASS.
+- Scan mapping: 16 kiểm tra PASS.
+- Delete/archived cleanup: 26 kịch bản giả lập PASS; receipt thiếu/sai
+  hoặc copy/source thay đổi đều không Move/Delete nguồn.
+- Rust tests 6/6 PASS; release build PASS.
+- Native server: 11 kiểm tra PASS; thao tác xóa thiếu xác nhận hoặc
+  archive receipt không hợp lệ bị từ chối trước khi truy cập Outlook.
+- Giao diện: 205 email giả, cả luồng PST mới/hiện có và xác nhận xóa
+  sau lưu đã PASS; không tự gửi yêu cầu xóa sau khi chỉ xuất PST.
+- Chưa thử xóa trên mailbox thật; chưa benchmark 40.000 email thật.
+
+LỊCH SỬ PHÁT HÀNH 0.4.0
+
+PHÁT HÀNH HIỆN TẠI: DESKTOP BUBBLE 0.4.0
+
+- Giao diện 5 phần, màu xanh, khung/nút bo tròn theo ảnh người dùng.
+- Thư mục dạng nút kèm số lượng, tìm kiếm, phân trang 100 email,
+  chọn trang/toàn bộ phạm vi đang lọc, tổng dung lượng, CSV danh sách.
+- Ba lựa chọn: xóa riêng; sao chép PST có sẵn; tạo PST mới.
+  Lưu PST luôn giữ thư gốc. Người dùng đã chọn thêm xóa riêng
+  có xác nhận trong cuộc trò chuyện.
+- Xóa yêu cầu checkbox và nhập XOA N; backend kiểm tra lại xác nhận,
+  đếm duy nhất StoreID+EntryID và yêu cầu sourceFolderId trước COM.
+- Trước khi Move/Delete, kiểm tra mailbox cached, EntryID, StoreID,
+  thư mục nguồn, tiêu đề, Internet Message ID nếu có. Sau Move kiểm tra
+  thư thực sự nằm trong Deleted Items. Không tự thử lại lệnh xóa lỗi.
+- Báo cáo ghi ý định và từng giai đoạn xóa; trạng thái thành công
+  là delete_requested, không khẳng định đã purge khỏi Exchange.
+- Nhật ký mặc định: %AppData%\KTG\OutlookMailManager\operations.log.
+- Có hộp thoại chọn file PST Windows. Đã thử luồng UI chọn file
+  bằng phản hồi giả, chưa kiểm thử thủ công hộp thoại hệ điều hành.
+
+KẾT QUẢ BẢN 0.4.0
+- Rust unit tests 6/6 PASS; build release PASS.
+- Quét cache: 15 kiểm tra mô phỏng PASS.
+- Xóa: 16 kịch bản mô phỏng PASS, gồm xác nhận thiếu/sai, dữ liệu đổi,
+  store không cached, lỗi Move/Delete, hủy giữa Move và Delete.
+- Sao chép: kiểm thử hồi quy 1.000 thư giả PASS; không gọi Move trên
+  bản gốc hoặc Delete trong luồng PST; CSV đủ kết quả.
+- Máy chủ EXE: 9 kiểm tra PASS; delete thiếu xác nhận bị từ chối trước
+  khi truy cập Outlook.
+- Giao diện tài nguyên nhúng trong EXE: PASS với 205 email giả,
+  lọc thư mục, chọn/bỏ chọn, tìm kiếm, CSV chống công thức,
+  hủy dialog xóa không gửi yêu cầu, nhập sai không mở nút xác nhận,
+  xác nhận đúng chỉ gửi 1 yêu cầu xóa giả. Xuất PST không gọi xóa.
+- Không có lỗi JavaScript. Đã xem ảnh desktop và kiểm tra responsive.
+- EXE Windows GUI x64: KTG-Outlook-Mail-Manager-Desktop-0.4.0.exe,
+  792.064 byte.
+- Không thực hiện bất kỳ thao tác xóa hoặc xuất nào trên thư thật.
+  Chưa benchmark mailbox/PST thật.
+
+LỊCH SỬ PHÁT HÀNH 0.3.1
+
+PHÁT HÀNH HIỆN TẠI: DESKTOP 0.3.1
+
+- Đổi nút "Dừng sau thư hiện tại" thành "Dừng tác vụ".
+- Đổi tiêu đề thành "Quét cache Outlook Exchange có trong máy",
+  nút quét thành "Quét cache Exchange".
+- Chỉ quét Exchange store có IsCachedExchange=true trong profile
+  Outlook đang mở, vẫn yêu cầu Work Offline. Bỏ qua PST, online-only,
+  public folder không cached và store không xác định được trạng thái.
+- Không đọc trực tiếp các OST rời hoặc cache của profile chưa mở.
+- Kiểm tra cờ dừng cả trong lô GetArray; giữ kết quả đã đọc khi dừng.
+- test-scan.ps1: PASS 15 kiểm tra, bao gồm phân loại cache và dừng
+  sau khi GetArray trả về.
+- cargo test: PASS 6/6; cargo build release: PASS.
+- Máy chủ trên EXE mới: PASS 9/9.
+- Giao diện trên tài nguyên nhúng trong EXE: PASS với 205 thư giả;
+  đã kiểm tra chính xác hai nhãn nút và xem ảnh giao diện.
+- EXE: KTG-Outlook-Mail-Manager-Desktop-0.3.1.exe, 756.224 byte.
+- Không có Outlook đang chạy khi kiểm tra; chưa quét cache/PST thật.
+
+LỊCH SỬ PHÁT HÀNH 0.3.0
+
+PHÁT HÀNH HIỆN TẠI: DESKTOP 0.3.0
+
+- KTG-Outlook-Mail-Manager-Desktop.exe: 755.200 byte, Windows x64.
+- PE subsystem = 2 (Windows GUI), không mở cửa sổ console.
+- tao 0.37.2 + wry 0.57.2; WebView2Loader liên kết tĩnh.
+- WebView2 Runtime có sẵn trên máy: 157.0.4341.46.
+- cargo test --locked --offline: PASS 6/6.
+  Có thêm kiểm thử đóng khi idle và đóng khi worker còn chạy:
+  phải ghi cờ hủy, đợi worker kết thúc, không kết thúc cưỡng ép.
+- cargo build --release --locked --offline: PASS.
+- test-server.ps1 với EXE Desktop: PASS 9/9.
+  Đã sửa socket accept trên Windows về blocking trước khi đọc body
+  để xử lý đúng trường hợp header và body đến khác thời điểm.
+- test-ui.cjs với tài nguyên nhúng trong EXE Desktop: PASS.
+  205 thư giả / 2 store, không lỗi JavaScript.
+- Đã mở EXE Desktop và xác nhận cửa sổ Windows có tiêu đề
+  "KTG Outlook Mail Manager". Không khởi chạy trình duyệt ngoài.
+  Cửa sổ bị thu nhỏ và có thao tác người dùng trong lúc kiểm tra;
+  chưa xác minh ảnh chụp giao diện bên trong cửa sổ desktop.
+- Start.cmd chỉ mở EXE Desktop, không tự chuyển sang giao diện web.
+- Mã sao chép Outlook không đổi trong lần chuyển cửa sổ này.
+  Kết quả mô phỏng 40.000 thư bên dưới vẫn là dữ liệu giả.
+- Chưa đo PST/COM/mailbox thật. Không có thư thật nào bị xóa.
+
+LỊCH SỬ KIỂM THỬ BẢN DỰNG LẠI 0.2
+
+ĐÃ CHẠY TRÊN MÁY WINDOWS NÀY
+
+1. PowerShell 5.1: test-core.ps1, 40.000 đối tượng Outlook giả.
+   PASS; phần xử lý xuất mô phỏng: 173,116 giây.
+   40.000 source lookup; 40.000 Copy; 40.000 kết quả verified giả.
+   3 lần mở/tạo thư mục đích; 39.998 cache hit; 401 batch kết quả.
+   0 lệnh Move trên đối tượng gốc; 0 lệnh Delete.
+   CSV đủ 40.000 dòng dữ liệu.
+   Đây KHÔNG phải benchmark COM/Exchange/OST/PST thật.
+
+2. Các ca lỗi trong test-core.ps1:
+   PASS: khử trùng theo StoreID+EntryID, hai store cùng EntryID,
+   thiếu cache, lỗi Copy, lỗi Move, sai tiêu đề, sai thư mục đích,
+   EntryID thay đổi, dừng mềm, bảo vệ CSV khỏi công thức.
+   Nguồn giả không bị Move/Delete trong các ca này.
+
+3. test-scan.ps1: PASS 8 kiểm tra.
+   Đọc mảng 2D GetArray giả, ánh xạ cột, SMTP từ bảng, Unicode,
+   StoreID/đoạn tên thư mục, lọc ngày, ReceivedTime/SentOn, hủy.
+
+4. test-server.ps1: PASS 9 kiểm tra với máy chủ PowerShell thật.
+   Phục vụ HTML/JS, token, Origin, trạng thái, chặn traversal,
+   khởi chạy worker, từ chối operation=delete trước khi truy cập Outlook,
+   đóng máy chủ.
+
+5. test-ui.cjs: PASS trên Chrome headless thật với dữ liệu giả.
+   205 thư / 2 store; phân trang 100 dòng; chọn đủ 205 thư không trùng,
+   gửi đúng yêu cầu xuất; hiển thị kết quả; tiêu đề HTML được hiển thị
+   như văn bản; không có lỗi JavaScript.
+   Đã xem ảnh giao diện desktop và mobile.
+
+6. Kết nối Outlook thật: chỉ chạy preflight quét đọc.
+   GetActiveObject trả MK_E_UNAVAILABLE (0x800401E3).
+   Outlook Classic có cài đặt nhưng không có phiên đang chạy khả dụng.
+   Không thư thật nào được xuất, chuyển hoặc xóa.
+
+CẬP NHẬT SAU KHI NGƯỜI DÙNG ĐỔI QUYỀN, CÙNG NGÀY 12/11/2026
+
+7. Đã tải Rustup từ static.rust-lang.org và cài toolchain chính thức:
+   rustc 1.99.1 (58cf8f9c3 2026-10-13), cargo 1.99.1; có rustfmt.
+   Đã tải bộ cài Microsoft từ aka.ms và xác minh chữ ký Valid,
+   publisher Microsoft Corporation trước khi chạy.
+   Đã cài Visual Studio Build Tools 2022 17.14.45 và Windows SDK.
+   vswhere báo isComplete=true, isLaunchable=true.
+   Bộ cài trả 3010 (khuyến nghị reboot); không tự reboot.
+
+8. cargo check --locked --offline: PASS.
+   cargo fmt --check: PASS.
+   cargo test --locked --offline: PASS cả 4 Rust unit tests:
+   body_roundtrip, reject_smuggling, reject_traversal, token_is_unique.
+   cargo build --release --locked --offline: PASS.
+   EXE Windows x64: 316.928 byte, phiên bản dự án 0.2.0.
+   EXE phụ thuộc Windows system DLLs, UCRT và VCRUNTIME140.dll;
+   đã chạy được trên chính máy này sau khi cài công cụ.
+
+9. test-server.ps1 với -ServerExecutable trỏ EXE Rust release:
+   PASS cả 9 kiểm tra máy chủ, bao gồm worker PowerShell được trích
+   xuất từ EXE và từ chối operation=delete trước khi truy cập Outlook.
+   Máy chủ PowerShell thay thế cũng đã kiểm thử lại, PASS.
+
+10. test-ui.cjs với KTG_SERVER_EXE trỏ EXE Rust release:
+    PASS trên Chrome headless với 205 thư giả, không lỗi JavaScript.
+    Giao diện được phục vụ trực tiếp từ tài nguyên nhúng trong EXE.
+    Các thao tác Outlook trong kiểm thử giao diện này dùng API giả;
+    không phải kiểm thử xuất PST thật.
+
+CHƯA XÁC MINH
+
+- Chưa kiểm thử provider COM, file PST hoặc mailbox thật.
+- Chưa đo tốc độ trước/sau trên 40.000 thư thật.
+- Chưa có kiểm tra hash nội dung/tệp đính kèm.
+- Chưa có Extended MAPI bulk copy.
+
+EXE cũ tại ổ D: được giữ nguyên. Không sửa binary hoặc thay bằng bản khác.
+
+HOÀN TẤT THỬ 1.000 THƯ THẬT, SAU KHI HAI PST ĐÃ ĐƯỢC KIỂM TRA
+- Mỗi PST đầy đủ: 1.000 thư đúng Inbox=944, Sent Items=56.
+- Mỗi PST: body/HTML SHA-256 và 1.672 attachment kiểm tra đạt,
+  gồm 26 MSG kiểm tra nội dung/thuộc tính sau chuẩn hóa metadata provider.
+- Kiểm tra sâu bổ sung mất 262,09 giây (cũ), 262,18 giây (mới), không tính
+  vào số đo copy. Đây là công cụ kiểm chứng thử nghiệm, không phải mặc định EXE.
+- Sau đó luồng cleanup 0.5.1 xóa đúng 1.000 nguồn, 0 lỗi, 178,78 giây.
+- Kiểm tra độc lập: 1.000 ID nguồn và 1.000 ID sau Move vào Deleted Items
+  không còn mở được. Deleted Items trước=0, sau=0; không Empty Folder.
+- Hai PST sau xóa vẫn mở lại được đủ 1.000 bản mỗi file.
+- Scan cache trước/sau 1.352 → 352, không lỗi.
+- Outlook vẫn Work Offline, chưa xác minh đồng bộ lên máy chủ Exchange.
+- Báo cáo người dùng trong outputs/Benchmark-1000-20261112-162405.
+HOÀN TẤT KIỂM THỬ 0.5.2 — 13/11/2026
+- MAPI cleanup tổng hợp, PST riêng: 1.000 thư mới 2,964 giây/20 lô; luồng cũ 124,828 giây. PST còn đủ 1.000 thư; sentinel ngoài lô còn nguyên.
+- Không xóa thư Exchange thật trong lượt kiểm thử này. Tạo thư fixture cũ bằng Outlook COM đặt nhầm 56 thư thử vào Drafts; người dùng đã cho phép dọn đúng các thư thử và sentinel. Kiểm tra sau dọn: 0 thư thử còn trong Drafts hoặc Deleted Items.
+- 40.000 mục bulk giả lập: đạt 237,8 giây, 442 lô, 0 lần move/delete thật.
+- Rust 6/6; scan 20; delete 28; automatic export 28; bulk 44; server 15/15; kiểm tra EXE phát hành/server 15/15.
+- Bản phát hành: 0.5.2. Chưa đo 40.000 thư Exchange thật; benchmark MAPI 1.000 dùng PST tổng hợp.
+THAY ĐỔI 0.5.3 — giảm lượt COM khi sao chép
+- Đã thêm test cho biên nhận MAPI: chỉ ID trong lô được chấp nhận, ID thừa bị bỏ, ID trùng bị từ chối; biên nhận PST chỉ phát hành khi lô có đối chiếu hợp lệ.
+- Đã bỏ mở lại từng nguồn/bản sao qua Outlook COM sau copy trong đường MAPI; tiến độ/report được flush theo nhóm.
+- Chưa đo tốc độ sao chép trên Exchange thật sau thay đổi 0.5.3.
+- PST tổng hợp 1.000 thư: MAPI copy theo lô + biên nhận 12,31 giây; cleanup theo lô 3,13 giây. Không phải phép đo trên Exchange.
+
+QUÉT CACHE 0.5.4
+- Encoder giả lập 70.000 thư: 2.198 giây/35 lượt GetArray ở lô 2.000; 2.053 giây/14 lượt ở lô 5.000; toàn bộ 70.000 thư đọc/giải mã đủ.
+- Đây không phải benchmark Exchange/OST thật.
+
+BUILD 0.5.4 — 13/11/2026
+- Rust 6/6; scan correctness 20; scan benchmark 70.000/70.000 decoded, 14 GetArray calls at 5.000 rows; delete 28; automatic export 28; bulk mock 40.000 passed with zero source moves/deletes; bulk 44; native-copy receipt 2; server 15/15; release EXE/server 15/15.
+- Standalone scan encoder comparison: rows 2.000 → 5.000 lowered table calls 35 → 14 and time 2.198 → 2.053 sec (synthetic data only).
+BUILD 0.5.5 — quét từng 1.000 dòng
+- 70.000 dòng giả lập: 70 lô GetArray, 70.000/70.000 dòng được giải mã; benchmark warm trong build 1,169 giây.
+- Kiểm tra quét 20; Rust 6/6; xóa 28; auto-export 28; bulk giả lập 40.000 đạt với 0 move/delete; bulk 44; native-copy receipts 2; server 15/15; release EXE/server 15/15.
+- Không đo mailbox Exchange thật sau khi hạ kích thước lô.
+BUILD 0.5.6 — lô xuất PST 1.000 thư
+- Một lô vòng ngoài tối đa 1.000; kiểm tra cache/MAPI copy được chia 100; dọn nguồn chia 50 sau đối chiếu PST.
+- Kiểm thử giả lập: 123 thư chia dọn 50/50/23 và tất cả slice có đủ biên nhận; lô ngoài 123 thư tính là một batch.
+- PST tổng hợp riêng 1.000 thư: copy 6,964 giây, cleanup 2,516 giây; 1.000 bản lưu đủ, 1.000 nguồn tổng hợp đã dọn, sentinel ngoài lô giữ nguyên. Không mailbox Exchange thật.
+
+THAY ĐỔI DỰ KIẾN 0.5.7 — gộp kiểm tra cache vào MAPI
+- Loại bỏ lần GetItemFromID/DownloadState/Test-SameOutlookId thứ hai qua Outlook COM trong luồng MAPI; nguồn được xác thực bằng native OpenEntry cache-only trước copy.
+- Native báo riêng mỗi ID không mở được; không copy hoặc xóa nguồn thư đó.
+- Cleanup bỏ mở PST lặp lại lần ba; vẫn đối chiếu snapshot Deleted Items và xóa đúng danh sách ID.
+- Chạy kiểm tra biên nhận/cache-skip và bulk giả lập: đạt. Benchmark Exchange thật chưa chạy; mục tiêu 40.000/10 phút chưa được đo hoặc đảm bảo.
+
+THAY ĐỔI 0.5.8 — khôi phục các lô MAPI có email xung đột
+- MAPI E_INVALIDARG không còn chỉ được báo bằng mã HRESULT; chuỗi lỗi gốc được giữ trong report.csv.
+- Search Key trùng được tách và đánh dấu riêng; bản nguồn trùng vẫn giữ nguyên, email còn lại tiếp tục xử lý.
+- Không tự retry sau khi CopyMessages bắt đầu; chỉ source có biên nhận PST đạt mới đủ điều kiện dọn.
+
+THAY ĐỔI DỰ KIẾN 0.5.9 — dọn theo Search Key trùng và lỗi copy theo từng thư
+- Search Key trùng: chuyển từng EntryID riêng, xác minh chính xác một ID mới cùng metadata trước khi yêu cầu xóa; trường hợp mơ hồ giữ nguồn.
+- Copy không có biên nhận PST: ghi rõ thiếu bản tạm, nhiều bản trùng, sai metadata, hoặc lỗi table/EntryID cho từng email.
+- Không retry CopyMessages sau khi bắt đầu; PST chỉ đủ điều kiện dọn khi có biên nhận đối chiếu hợp lệ.
+
+THAY ĐỔI 0.5.10 — không làm mất lỗi per-email khi gộp MAPI
+- Merge-NativeCopyManifests giữ cả copies, skipped, lỗi chi tiết và HRESULT từ mọi nhóm con.
+- Kiểm thử giả lập gộp hai manifest, xác nhận cả hai lỗi từng thư và HRESULT còn nguyên; bulk mock 44 checks đạt.
+- Chưa chạy lại trên Exchange; cần xác nhận 931 trường hợp thiếu PST với report.csv mới.
+
+THAY ĐỔI 0.5.11 — multiset matching khi Search Key trùng
+- Cho phép nhiều nguồn cùng Search Key, nhưng ghép theo Search Key + subject + Internet Message ID + kích thước + số attachment.
+- Cấp biên nhận theo số lượng khớp ở PST staging và thư mục cuối; nguồn chỉ được xóa khi số lượng và snapshot khớp.
+- Lần 0.5.10: 947/1000 nguồn bị bỏ chỉ vì Search Key trùng; đây là lỗi xử lý trong app. Lần này chưa chạy lại mailbox thật; build compile và kiểm thử giả lập sẽ xác nhận trước.
